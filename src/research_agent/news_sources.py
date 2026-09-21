@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -122,12 +123,23 @@ def relevant(item: Article) -> bool:
     title = item.title.rsplit(" - ", 1)[0].casefold()
     if title.count("#") >= 4 or "超话" in title:
         return False
+    noise = ("超话", "收视", "热度年冠", "追剧", "汇聚心跳", "粉丝应援", "星座", "抽奖")
+    financial = ("营收", "财报", "业绩", "股价", "回购", "利润", "revenue", "earnings")
+    if any(term in title for term in noise) and not any(term in title for term in financial):
+        return False
     aliases = (
         ("nvidia", "nvda", "英伟达", "英偉達")
         if item.company == "英伟达"
         else ("腾讯", "騰訊", "tencent", "微信", "wechat", "混元", "hunyuan")
     )
     return any(alias in title for alias in aliases)
+
+
+def story_key(item: Article) -> str:
+    """Exact normalized headline sans publisher suffix; no semantic equivalence claim."""
+    headline = item.title.rsplit(" - ", 1)[0]
+    normalized = unicodedata.normalize("NFKC", headline).casefold()
+    return hashlib.sha256(re.sub(r"\W", "", normalized).encode()).hexdigest()[:24]
 
 
 def importance(item: Article) -> tuple:
@@ -273,8 +285,8 @@ async def collect(
             for a in candidates:
                 if a.id in exclude_ids:
                     continue
-                key = re.sub(r"\W", "", a.title.casefold())
-                if a.id in seen or key in seen:
+                key = story_key(a)
+                if key in exclude_ids or a.id in seen or key in seen:
                     continue
                 seen.update((a.id, key))
                 output.articles.append(a)

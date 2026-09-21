@@ -21,7 +21,7 @@ from .daily_config import configure, credentials, load_config
 from .models import digest
 from .news_loop import execute as execute_loop
 from .news_loop import setup as setup_loop
-from .news_sources import Article, collect
+from .news_sources import Article, Collection, collect, story_key
 from .providers import ProviderError
 from .reporting import atomic_write
 
@@ -92,22 +92,44 @@ def mark_sent(conn, run_id, recipient, report):
                 "INSERT OR IGNORE INTO delivered VALUES(?,?,?)",
                 (recipient, a["id"], datetime.now(UTC).isoformat()),
             )
+            conn.execute(
+                "INSERT OR IGNORE INTO delivered VALUES(?,?,?)",
+                (recipient, story_key(Article.model_validate(a)), datetime.now(UTC).isoformat()),
+            )
         conn.execute(
             "UPDATE outbox SET status='sent',error='',updated=? WHERE id=?",
             (datetime.now(UTC).isoformat(), run_id),
         )
 
 
-async def prepare(config, secrets, conn, now):
+async def prepare(config, secrets, conn, now, checkpoint=None):
     seen = {
         row[0]
         for row in conn.execute(
             "SELECT article_id FROM delivered WHERE recipient=?", (config.recipient,)
         )
     }
-    collected = await collect(
-        now, config.lookback_hours, config.articles_per_company, exclude_ids=seen
-    )
+    batch_id = now.astimezone(ZoneInfo(config.timezone)).date().isoformat()
+    cached = None
+    if checkpoint:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS news_batches "
+            "(id TEXT PRIMARY KEY, payload TEXT NOT NULL, created TEXT NOT NULL)"
+        )
+        cached = conn.execute("SELECT payload FROM news_batches WHERE id=?", (batch_id,)).fetchone()
+    if cached:
+        collected = Collection.model_validate_json(cached[0])
+    else:
+        collected = await collect(
+            now, config.lookback_hours, config.articles_per_company, exclude_ids=seen
+        )
+        if checkpoint and all(c.status == "ok" for c in collected.coverage):
+            conn.execute(
+                "INSERT INTO news_batches VALUES(?,?,?)",
+                (batch_id, collected.model_dump_json(), now.isoformat()),
+            )
+            conn.commit()
+            checkpoint(conn)
     articles = [a for a in collected.articles if a.id not in seen]
     summaries, usage = [], {}
     status = "无新增条目，无需调用模型"
@@ -119,8 +141,9 @@ async def prepare(config, secrets, conn, now):
             status, failed = "尚未确认免费额度用完即停；未调用模型", True
         else:
             try:
+                options = {"checkpoint": checkpoint} if checkpoint else {}
                 result, usage = await execute_loop(
-                    conn, articles, secrets["api_key"], config.model, config.base_url
+                    conn, articles, secrets["api_key"], config.model, config.base_url, **options
                 )
                 summaries = [item.model_dump() for item in result.items]
                 status = f"百炼 {config.model}；引文和数字校验通过，未做人工语义核验"
@@ -157,7 +180,17 @@ def export(config, report, preview=False):
     return str(root.with_suffix(".html"))
 
 
-async def run(config, send=False, due=False, now=None):
+async def run(
+    config,
+    send=False,
+    due=False,
+    now=None,
+    checkpoint=None,
+    delivery_policy=None,
+    delivery_kind="daily",
+):
+    if delivery_kind not in {"daily", "migration-test"}:
+        raise ValueError("unsupported_delivery_kind")
     now = now or datetime.now(UTC)
     local = now.astimezone(ZoneInfo(config.timezone))
     if due and local.hour < config.send_hour:
@@ -169,7 +202,14 @@ async def run(config, send=False, due=False, now=None):
     if send and (not secrets["api_key"] or not config.free_quota_only_confirmed):
         raise ValueError("configure_bailian_and_confirm_free_quota_guard_first")
     run_id = local.date().isoformat() + "-" + digest(config.recipient)[:12]
+    if delivery_kind != "daily":
+        run_id += "-" + delivery_kind
     with run_lock(config.data_dir), database(config.data_dir) as conn:
+        unresolved = conn.execute(
+            "SELECT id FROM outbox WHERE status IN ('sending','unknown') LIMIT 1"
+        ).fetchone()
+        if send and unresolved:
+            return {"status": "delivery_uncertain_check_mailbox", "id": unresolved[0]}, 2
         existing = conn.execute("SELECT * FROM outbox WHERE id=?", (run_id,)).fetchone()
         if send and existing and existing["status"] == "sent":
             return {"status": "already_sent", "id": run_id}, 0
@@ -178,8 +218,10 @@ async def run(config, send=False, due=False, now=None):
         report = (
             json.loads(existing["report"])
             if send and existing
-            else await prepare(config, secrets, conn, now)
+            else await prepare(config, secrets, conn, now, checkpoint)
         )
+        report["id"] = run_id
+        report["delivery_kind"] = delivery_kind
         output = export(config, report, preview=not send)
         if not send:
             return {
@@ -189,6 +231,8 @@ async def run(config, send=False, due=False, now=None):
                 "summary_status": report["summary_status"],
                 "coverage": report["coverage"],
             }, 0
+        if delivery_policy:
+            delivery_policy(report)
         if not existing:
             conn.execute(
                 "INSERT INTO outbox(id,day,status,report,updated) VALUES(?,?,?,?,?)",
@@ -201,22 +245,32 @@ async def run(config, send=False, due=False, now=None):
                 ),
             )
             conn.commit()
+            if checkpoint:
+                checkpoint(conn)
         try:
             server = daily_mail.connect(config, secrets["smtp_password"])
         except (smtplib.SMTPException, OSError) as exc:
             update(conn, run_id, "prepared", type(exc).__name__)
+            if checkpoint:
+                checkpoint(conn)
             return {"status": "smtp_login_or_connection_failed", "id": run_id}, 2
         try:
             msg = daily_mail.message(config, report)
             update(conn, run_id, "sending")  # Commit before DATA; crash implies uncertain delivery.
+            if checkpoint:
+                checkpoint(conn)  # A failed/ambiguous remote save MUST prevent SMTP DATA.
             try:
                 rejected = server.send_message(msg)
                 if rejected:
                     raise smtplib.SMTPRecipientsRefused(rejected)
             except (smtplib.SMTPException, OSError) as exc:
                 update(conn, run_id, "unknown", type(exc).__name__)
+                if checkpoint:
+                    checkpoint(conn)
                 return {"status": "delivery_uncertain_check_mailbox", "id": run_id}, 2
             mark_sent(conn, run_id, config.recipient, report)
+            if checkpoint:
+                checkpoint(conn)
         finally:
             server.close()
         return {
@@ -225,6 +279,10 @@ async def run(config, send=False, due=False, now=None):
             "html": output,
             "articles": len(report["articles"]),
             "degraded": report["degraded"],
+            "verified_summaries": len(report["summaries"]),
+            "healthy_sources": sum(c["status"] == "ok" for c in report["coverage"]),
+            "source_count": len(report["coverage"]),
+            "usage": report.get("usage", {}),
         }, 0
 
 

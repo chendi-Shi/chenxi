@@ -128,6 +128,8 @@ def message(config: DailyConfig, report: dict) -> EmailMessage:
     msg["To"] = config.recipient
     degraded = " · 采集/摘要不完整" if report["degraded"] else ""
     msg["Subject"] = f"英伟达 & 腾讯资讯日报 | {report['day']}{degraded}"
+    if report.get("delivery_kind") == "migration-test":
+        msg.replace_header("Subject", "【云端迁移验证】" + str(msg["Subject"]))
     msg["Date"] = formatdate(localtime=False)
     domain = config.sender.split("@", 1)[1]
     msg["Message-ID"] = (

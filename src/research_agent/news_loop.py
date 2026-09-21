@@ -22,7 +22,7 @@ def setup(conn):
     """)
 
 
-def save(conn, key, state, detail=""):
+def save(conn, key, state, detail="", checkpoint=None):
     now = datetime.now(UTC).isoformat()
     with conn:
         conn.execute(
@@ -33,9 +33,11 @@ def save(conn, key, state, detail=""):
             "INSERT INTO news_trace(key,phase,attempt,detail,created) VALUES(?,?,?,?,?)",
             (key, state["phase"], state["attempts"], detail, now),
         )
+    if checkpoint:
+        checkpoint(conn)
 
 
-async def execute(conn, articles, api_key, model, base_url, generate_fn=None):
+async def execute(conn, articles, api_key, model, base_url, generate_fn=None, checkpoint=None):
     setup(conn)
     generate_fn = generate_fn or generate
     key = digest(
@@ -86,11 +88,11 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None):
                     phase="partial" if partial.items else "failed",
                     error="agent_generation_budget_exhausted",
                 )
-                save(conn, key, state)
+                save(conn, key, state, checkpoint=checkpoint)
                 continue
             state["attempts"] += 1
             state["phase"] = "calling"
-            save(conn, key, state, "generation_reserved")
+            save(conn, key, state, "generation_reserved", checkpoint)
             feedback = (
                 {"draft": state["draft"], "error": state["error"]} if state["draft"] else None
             )
@@ -100,19 +102,19 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None):
                 )
             except ProviderError as exc:
                 state.update(phase="failed", error=exc.code)
-                save(conn, key, state, exc.code)
+                save(conn, key, state, exc.code, checkpoint)
                 continue
             for field in ("input_tokens", "output_tokens"):
                 state["usage"][field] += usage.get(field, 0)
             state.update(phase="review", draft=raw)
-            save(conn, key, state, "generation_completed")
+            save(conn, key, state, "generation_completed", checkpoint)
         if state["phase"] == "review":
             try:
                 review(state["draft"], articles)
             except ProviderError as exc:
                 state.update(phase="generate", error=exc.code)
-                save(conn, key, state, "repair_requested:" + exc.code)
+                save(conn, key, state, "repair_requested:" + exc.code, checkpoint)
             else:
                 state.update(phase="done", error="")
-                save(conn, key, state, "evidence_checks_passed")
+                save(conn, key, state, "evidence_checks_passed", checkpoint)
     raise ProviderError("agent_step_budget_exhausted")

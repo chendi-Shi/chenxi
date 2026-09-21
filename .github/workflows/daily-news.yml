@@ -1,0 +1,47 @@
+name: Daily NVIDIA and Tencent research
+on:
+  schedule:
+    - cron: '0,20 1 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'verify=connectivity; preview=no email; send=normal daily send; resolve=manual reconciliation'
+        type: choice
+        options: [send, verify, preview, send-test, resolve]
+        default: send
+      run_id:
+        description: 'For resolve only: exact uncertain delivery ID from logs'
+        type: string
+      outcome:
+        description: 'For resolve only, after checking the mailbox'
+        type: choice
+        options: [not-applicable, received, not-received]
+permissions:
+  contents: write
+concurrency:
+  group: chenxi-daily-delivery
+  cancel-in-progress: false
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned runtime
+        run: python -m pip install -c requirements-dev.lock '.[cloud]'
+      - name: Generate, validate and deliver with durable checkpoints
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DAILY_CONFIG_JSON: ${{ secrets.DAILY_CONFIG_JSON }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          MODE: ${{ inputs.mode || 'send' }}
+          RESOLVE_ID: ${{ inputs.run_id }}
+          RESOLVE_OUTCOME: ${{ inputs.outcome }}
+        run: python -m research_agent.cloud "$MODE" --id "$RESOLVE_ID" --outcome "$RESOLVE_OUTCOME"
