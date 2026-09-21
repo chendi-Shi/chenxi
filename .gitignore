@@ -22,3 +22,5 @@ exports/
 .env.*
 !.env.example
 pytest-cache-files-*/
+*.local.json
+*.dpapi

@@ -1,0 +1,14 @@
+{
+  "recipient": "your-account@qq.com",
+  "sender": "your-account@qq.com",
+  "model": "qwen-plus",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "free_quota_only_confirmed": false,
+  "smtp_host": "smtp.qq.com",
+  "smtp_port": 465,
+  "timezone": "Asia/Shanghai",
+  "send_hour": 9,
+  "lookback_hours": 36,
+  "articles_per_company": 8,
+  "data_dir": "data/daily"
+}

@@ -1,5 +1,18 @@
 # Research Brief Agent
 
+新增实际场景：**英伟达与腾讯每日资讯邮件**。公开新闻 → 百炼中文摘要 → 引文/数字检查与有界修正循环 → SQLite 检查点与发件箱 → QQ SMTP 邮件。支持预览、防重复发送和执行追踪。
+
+请先阅读 [每日邮件配置与完整技术说明](docs/DAILY_MAIL.md)。Windows 用户配置 `daily.local.json` 后双击 `configure_daily.cmd`。真实采集已运行；模型与 SMTP 需要本机凭据，未配置前不能发送。
+
+```powershell
+.venv\Scripts\python.exe -m research_agent.daily check --live
+.venv\Scripts\python.exe -m research_agent.daily run          # 预览
+.venv\Scripts\python.exe -m research_agent.daily run --send   # 发送
+.venv\Scripts\python.exe -m research_agent.daily trace
+```
+
+以下为原有本地材料处理入口，与每日资讯邮件共享 Python 包。
+
 纯 Python 的投研材料处理项目：增量导入、长文分块、结构化事实提取、证据校验、失败修复、断点恢复、简报导出与人工复核。
 
 **0.2.0：CLI + Python package，没有网页前端。** 当前是工程化原型，尚未通过真实投研业务和真实模型端到端验证。
