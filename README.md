@@ -1,5 +1,7 @@
 # Research Brief Agent
 
+HF Docker 服务入口：在线采集、生成和查看日报，带访问鉴权与生成频率限制。部署文件与限制见 [Hugging Face 部署说明](docs/HUGGING_FACE.md)。
+
 新增实际场景：**英伟达与腾讯每日资讯邮件**。公开新闻 → 百炼中文摘要 → 引文/数字检查与有界修正循环 → SQLite 检查点与发件箱 → QQ SMTP 邮件。支持预览、防重复发送和执行追踪。
 
 请先阅读 [每日邮件配置与完整技术说明](docs/DAILY_MAIL.md)。Windows 用户配置 `daily.local.json` 后双击 `configure_daily.cmd`。真实采集已运行；模型与 SMTP 需要本机凭据，未配置前不能发送。

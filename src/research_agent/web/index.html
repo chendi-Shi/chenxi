@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>晨曦 · 资讯研究台</title>
+<style>
+:root{font:16px/1.7 system-ui,sans-serif;color:#183145;background:#f3f5f7}body{margin:0}main{max-width:1100px;margin:auto;padding:40px 24px}header{border-bottom:1px solid #ccd6de;padding-bottom:24px}small{color:#607989;letter-spacing:2px}h1{font-size:36px;margin:8px 0}h2{font-size:18px;margin-top:0}.card{background:white;border:1px solid #dbe3e8;border-radius:12px;padding:22px;margin:20px 0}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}input{font:inherit;border:1px solid #b6c6d2;border-radius:7px;padding:10px;min-width:250px}button{font:inherit;background:#135d73;color:white;border:0;border-radius:7px;padding:11px 20px;cursor:pointer}button:disabled{opacity:.45;cursor:wait}.muted{color:#607989;font-size:14px}.metrics{display:flex;gap:36px;margin:14px 0}.metrics strong{font-size:30px}.error{color:#a43726}iframe{width:100%;height:900px;border:0}#sources{white-space:pre-wrap}a{color:#135d73}
+</style>
+<main><header><small>CHENXI / RESEARCH DESK</small><h1>英伟达 × 腾讯</h1><p>从公开资讯到可追溯的中文日报。采集、摘要、证据校验与有限次数修正。</p></header>
+<section class="card"><h2>连接研究台</h2><div class="row"><input id="token" type="password" placeholder="输入服务访问密钥" autocomplete="off" aria-label="服务访问密钥"><button id="connect">连接</button><button id="run" disabled>生成最新日报</button></div><p class="muted">访问密钥仅留在当前页面内存中。每次生成至少间隔五分钟。</p><p id="message" role="status">尚未连接</p></section>
+<section class="card"><h2>运行状态</h2><div class="metrics"><div><strong id="articles">—</strong><br>资讯条目</div><div><strong id="summaries">—</strong><br>已校验摘要</div><div><strong id="model">—</strong><br>百炼模型</div></div><p id="summary">尚无日报</p><p id="sources" class="muted"></p></section>
+<section class="card" id="reportCard" hidden><h2>最新日报</h2><iframe id="report" title="资讯日报" sandbox="allow-popups allow-popups-to-escape-sandbox"></iframe></section>
+<footer class="muted">引文与数字检查不等于人工事实核验。请阅读原始来源。<br>HF 页面用于按需生成与查看；QQ 定时发信需要独立执行器。实例休眠期间不运行，重启后临时历史可能丢失。</footer></main>
+<script>
+const $=id=>document.getElementById(id);let token='',timer=null,lastReport='';
+async function api(path,method='GET'){const r=await fetch(path,{method,headers:{Authorization:'Bearer '+token}});if(!r.ok){let b=await r.json();throw Error(b.detail||'请求失败')}return r}
+function message(s,error=false){$('message').textContent=s;$('message').className=error?'error':''}
+async function refresh(){try{const s=await(await api('/api/status')).json();$('articles').textContent=s.article_count;$('summaries').textContent=s.summary_count;$('model').textContent=s.model;$('run').disabled=s.busy||!s.ready||s.retry_after>0;$('summary').textContent=s.report?.summary_status||'尚未生成日报';$('sources').textContent=(s.report?.coverage||[]).map(c=>c.company+' · '+c.source+'：'+(c.status==='ok'?'采集正常':'采集异常')+'，窗口内 '+c.recent_items+' 条').join('\n');message(s.error||(s.busy?'正在采集、生成与校验，请稍候…':!s.ready?'尚未配置百炼密钥或免费额度保护':s.retry_after>0?'任务已结束；'+s.retry_after+' 秒后可再次生成':'服务已就绪'),!!s.error);if(s.report&&s.report.collected_at!==lastReport){$('report').srcdoc=await(await api('/api/report')).text();$('reportCard').hidden=false;lastReport=s.report.collected_at}}catch(e){message(e.message,true);clearInterval(timer);$('run').disabled=true}}
+$('connect').onclick=async()=>{token=$('token').value;$('token').value='';clearInterval(timer);await refresh();timer=setInterval(refresh,10000)};
+$('run').onclick=async()=>{$('run').disabled=true;try{await api('/api/run','POST');await refresh()}catch(e){message(e.message,true)}};
+</script></html>

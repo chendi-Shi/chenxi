@@ -1,5 +1,7 @@
 include README.md config.example.toml requirements-dev.lock
 include daily.example.json configure_daily.cmd
+include Dockerfile .dockerignore
+recursive-include deploy *.md *.py
 recursive-include docs *.md
 recursive-include samples *.json
 recursive-include evals *.jsonl
