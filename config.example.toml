@@ -1,0 +1,16 @@
+data_dir = "data"
+provider = "rules" # rules | openai
+model = "" # required for openai; choose a model available in your account
+base_url = "https://api.openai.com/v1"
+concurrency = 3
+request_timeout = 60
+max_retries = 3
+repair_attempts = 1
+chunk_chars = 6000
+segment_chars = 1400
+overlap_segments = 1
+max_file_mb = 20
+max_document_chars = 1000000
+max_pdf_pages = 300
+# A watchlist only reorders output; it never skips unmentioned documents.
+watchlist = ["云岚科技", "芯片"]

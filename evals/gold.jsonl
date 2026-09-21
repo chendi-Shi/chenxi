@@ -1,0 +1,10 @@
+{"id": "earnings_growth", "body": "云岚科技2026年上半年营收12.6亿元，同比增长18%。净利润1.4亿元，同比增长9%。", "gold": [{"category": "公司业绩", "quote": "云岚科技2026年上半年营收12.6亿元，同比增长18%。"}, {"category": "公司业绩", "quote": "净利润1.4亿元，同比增长9%。"}], "synthetic": true}
+{"id": "earnings_decline", "body": "澄海消费第三季度收入8.2亿元，同比下降4%。经营数据未经审计。", "gold": [{"category": "公司业绩", "quote": "澄海消费第三季度收入8.2亿元，同比下降4%。"}, {"category": "公司业绩", "quote": "经营数据未经审计。"}], "synthetic": true}
+{"id": "policy_draft", "body": "某地区发布融资支持政策征求意见稿。该政策尚未正式生效。", "gold": [{"category": "宏观政策", "quote": "某地区发布融资支持政策征求意见稿。"}, {"category": "宏观政策", "quote": "该政策尚未正式生效。"}], "synthetic": true}
+{"id": "sample_limitation", "body": "三家芯片厂商订单增长6%。该调研样本有限，不能推断全行业需求回升。", "gold": [{"category": "产业动态", "quote": "三家芯片厂商订单增长6%。"}, {"category": "产业动态", "quote": "该调研样本有限，不能推断全行业需求回升。"}], "synthetic": true}
+{"id": "meeting_timezone", "body": "行业电话会拟于2026年9月23日北京时间15:00举行。报名截止时间为9月22日18:00。", "gold": [{"category": "会议活动", "quote": "行业电话会拟于2026年9月23日北京时间15:00举行。"}, {"category": "会议活动", "quote": "报名截止时间为9月22日18:00。"}], "synthetic": true}
+{"id": "guidance", "body": "公司预计下半年收入可能增长，但未披露具体幅度。", "gold": [{"category": "公司业绩", "quote": "公司预计下半年收入可能增长，但未披露具体幅度。"}], "synthetic": true}
+{"id": "rumor", "body": "市场传闻某芯片厂商将扩充产能，该消息未经证实。", "gold": [{"category": "产业动态", "quote": "市场传闻某芯片厂商将扩充产能，该消息未经证实。"}], "synthetic": true}
+{"id": "signed_value", "body": "本期营收同比增速为-3.2%，上期为+1.4%。", "gold": [{"category": "公司业绩", "quote": "本期营收同比增速为-3.2%，上期为+1.4%。"}], "synthetic": true}
+{"id": "english", "body": "Example revenue increased 8% to USD 12.5 million. Earnings are unaudited.", "gold": [{"category": "公司业绩", "quote": "Example revenue increased 8% to USD 12.5 million. Earnings are unaudited."}], "synthetic": true}
+{"id": "irrelevant", "body": "办公室本周五组织消防演练。请提前整理物品。", "gold": [], "synthetic": true}
