@@ -1,5 +1,17 @@
 # Hugging Face 部署
 
+## 已上传的 Space
+
+目标：[fall2028/chenxi](https://huggingface.co/spaces/fall2028/chenxi)。已由 Static 改为 Docker，
+上传的 Dockerfile 对应 `deploy/huggingface/pinned.Dockerfile`：构建时下载 GitHub 提交
+`f81a999c6b605128c1fe7888891fc9cfaed1aa86`，使用 SHA-256 校验源码归档，再按锁文件安装运行依赖。
+该提交已通过 GitHub 的 Python 3.11–3.14、Windows/Linux 测试矩阵。
+固定提交避免上游分支变化自动改变部署；更新时需要同步提交号与归档哈希。
+
+2026-09-21 部署状态：代码已上传，HF 提示 CPU Basic quota limit，Space 仍暂停。
+尚未完成 HF Secrets 配置及线上生成验证；不能把此状态视作服务已经可用。
+已有本机邮件任务继续运行。
+
 ## 服务范围
 
 `research_agent.space_app` 使用 FastAPI/Uvicorn 提供浏览器研究台，复用真实采集、百炼、
