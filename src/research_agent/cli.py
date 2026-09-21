@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from . import __version__
 from .config import load_settings
+from .diagnostics import diagnose
 from .evaluation import evaluate
 from .pipeline import Pipeline
 from .providers import ProviderError, build_provider
@@ -34,6 +35,12 @@ def parser():
     root.add_argument("--config", type=Path)
     root.add_argument("--data-dir", type=Path)
     commands = root.add_subparsers(dest="command", required=True)
+    doctor = commands.add_parser(
+        "doctor", help="Check model readiness; optional synthetic API probe"
+    )
+    doctor.add_argument("--provider", choices=["rules", "openai"])
+    doctor.add_argument("--model")
+    doctor.add_argument("--live", action="store_true", help="Send synthetic text to the model API")
     commands.add_parser("init", help="Create or validate local database")
     ingest = commands.add_parser("ingest", help="Incrementally ingest a local file or directory")
     ingest.add_argument("path", type=Path)
@@ -83,8 +90,10 @@ async def dispatch(args):
         provider=getattr(args, "provider", None),
         model=getattr(args, "model", None),
     )
-    store = Store(settings.data_dir)
     command = args.command
+    if command == "doctor":
+        return await diagnose(settings, args.live)
+    store = Store(settings.data_dir)
     if command == "init":
         return {"database": str(store.db), "schema_version": 1}, 0
     if command == "ingest":

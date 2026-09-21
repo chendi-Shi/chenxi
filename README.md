@@ -30,11 +30,14 @@ research-agent --data-dir data/demo status
 ```powershell
 $env:RESEARCH_API_KEY = '你有权使用的密钥'
 $env:RESEARCH_MODEL = '账户可用且支持结构化输出的模型名'
+research-agent doctor --provider openai --live
 research-agent --data-dir data/work ingest inbox
 research-agent --data-dir data/work run --provider openai --out exports/work
 ```
 
 模型不写死，不自动换供应商；密钥从环境读取，不写数据库。`.env.example` 仅为示例，程序不自动加载 `.env`。配置项见 [config.example.toml](config.example.toml)。优先级：CLI > 环境 > TOML > 默认。
+
+`doctor` 默认只检查本地配置；`--live` 会发送一小段虚构文字测试真实 API、结构化输出和证据校验，可能产生模型费用。退出码 0 表示模型探测通过，2 表示尚未就绪；探测通过不代表真实业务效果已验收。诊断不读取或创建材料数据库。
 
 模型模式会发送所选文档分块到配置的模型服务。规则模式不联网。模型调用目前仅通过 MockTransport 契约/异常测试，尚未用真实 API Key 验证。
 
