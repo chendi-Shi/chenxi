@@ -4,11 +4,14 @@
 故障注入测试、质量门槛和跨来源去重。完整的问题记录、技术细节、边界与运维步骤见
 [生产化运行手册](docs/PRODUCTION_RUNBOOK.md)。当前是单邮箱部署，不能等同于已通过企业级高可用验收。
 
-HF Docker 服务入口：在线采集、生成和查看日报，带访问鉴权与生成频率限制。部署文件与限制见 [Hugging Face 部署说明](docs/HUGGING_FACE.md)。
+当前已启用 [GitHub 每日邮件工作流](https://github.com/chendi-Shi/chenxi/actions/workflows/daily-news.yml)：北京时间 09:00 调度、09:20 补查；运行不依赖本机开机。定时触发可能延迟。
+2026-09-21 云端试发已入箱；16 条资讯中 15 条摘要通过校验，1 条因模型补充了未经证实的币种而只保留原文；同日重跑确认没有重复发信。
+
+HF Docker 研究台代码已提供，但目标 Space 因账号套餐限制仍暂停，不是当前运行入口。部署文件与限制见 [Hugging Face 部署说明](docs/HUGGING_FACE.md)。
 
 新增实际场景：**英伟达与腾讯每日资讯邮件**。公开新闻 → 百炼中文摘要 → 引文/数字检查与有界修正循环 → SQLite 检查点与发件箱 → QQ SMTP 邮件。支持预览、防重复发送和执行追踪。
 
-请先阅读 [每日邮件配置与完整技术说明](docs/DAILY_MAIL.md)。Windows 用户配置 `daily.local.json` 后双击 `configure_daily.cmd`。真实采集已运行；模型与 SMTP 需要本机凭据，未配置前不能发送。
+本机独立部署请阅读 [每日邮件配置与完整技术说明](docs/DAILY_MAIL.md)。Windows 用户配置 `daily.local.json` 后双击 `configure_daily.cmd`。当前云端部署已使用 GitHub Actions Secrets，本机旧定时任务已停用；不要同时开启两套独立发件账本。
 
 ```powershell
 .venv\Scripts\python.exe -m research_agent.daily check --live
@@ -21,7 +24,7 @@ HF Docker 服务入口：在线采集、生成和查看日报，带访问鉴权�
 
 纯 Python 的投研材料处理项目：增量导入、长文分块、结构化事实提取、证据校验、失败修复、断点恢复、简报导出与人工复核。
 
-**0.2.0：CLI + Python package，没有网页前端。** 当前是工程化原型，尚未通过真实投研业务和真实模型端到端验证。
+以下 CLI 材料处理模块来自 **0.2.0**，与已完成真实百炼/QQ 验证的每日邮件模块不同；该模块尚未通过真实投研业务端到端验收。
 
 ## 快速启动
 

@@ -123,6 +123,13 @@ def test_exact_money_translation_preserves_currency_sign_and_magnitude():
     assert unsupported_numbers("收入13亿元", "收入12亿元")
 
 
+def test_live_regression_does_not_infer_currency_from_neighboring_amounts():
+    # 2026-09-21 cloud acceptance: the model appended HKD to an unspecified amount.
+    source = "募资6亿港元 市值64亿港元 腾讯套现1.7亿"
+    assert unsupported_numbers("腾讯套现1.7亿港元", source)
+    assert not unsupported_numbers("腾讯套现1.7亿，原文未标明该金额币种", source)
+
+
 async def test_loop_budget_survives_process_interruption(workspace):
     calls = 0
 
