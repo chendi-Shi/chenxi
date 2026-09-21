@@ -120,6 +120,8 @@ def parse_rss(text: str, company: str, source: str) -> list[Article]:
 
 def relevant(item: Article) -> bool:
     title = item.title.rsplit(" - ", 1)[0].casefold()
+    if title.count("#") >= 4 or "超话" in title:
+        return False
     aliases = (
         ("nvidia", "nvda", "英伟达", "英偉達")
         if item.company == "英伟达"

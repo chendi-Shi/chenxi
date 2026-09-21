@@ -124,6 +124,12 @@ async def prepare(config, secrets, conn, now):
                 )
                 summaries = [item.model_dump() for item in result.items]
                 status = f"百炼 {config.model}；引文和数字校验通过，未做人工语义核验"
+                if usage.get("partial"):
+                    failed = True
+                    status = (
+                        f"百炼 {config.model}；{len(summaries)}/{len(articles)} 条摘要通过校验；"
+                        "其余仅保留原文，未做人工语义核验"
+                    )
             except ProviderError as exc:
                 status, failed = f"百炼摘要失败（{exc.code}）；仅原始资讯", True
     day = now.astimezone(ZoneInfo(config.timezone)).date().isoformat()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from .bailian import PROMPT, generate, review
+from .bailian import PROMPT, generate, review, salvage
 from .models import digest, stable_json
 from .providers import ProviderError
 
@@ -41,7 +41,7 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None):
     key = digest(
         stable_json(
             {
-                "version": 1,
+                "version": 3,
                 "prompt": PROMPT,
                 "model": model,
                 "endpoint": base_url,
@@ -62,6 +62,15 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None):
         }
     )
     for _ in range(8):
+        if state["phase"] == "partial":
+            result = salvage(state["draft"], articles)
+            return result, {
+                **state["usage"],
+                "generations": state["attempts"],
+                "checkpoint": key,
+                "partial": True,
+                "rejected_articles": len(articles) - len(result.items),
+            }
         if state["phase"] == "done":
             return review(state["draft"], articles), {
                 **state["usage"],
@@ -72,7 +81,11 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None):
             raise ProviderError(state["error"] or "agent_generation_budget_exhausted")
         if state["phase"] in {"generate", "calling"}:
             if state["attempts"] >= 2:
-                state.update(phase="failed", error="agent_generation_budget_exhausted")
+                partial = salvage(state["draft"], articles)
+                state.update(
+                    phase="partial" if partial.items else "failed",
+                    error="agent_generation_budget_exhausted",
+                )
                 save(conn, key, state)
                 continue
             state["attempts"] += 1

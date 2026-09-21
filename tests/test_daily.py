@@ -19,6 +19,7 @@ from research_agent.news_sources import (
     parse_tencent,
 )
 from research_agent.providers import ProviderError
+from research_agent.quantities import unsupported_numbers
 
 
 def sample():
@@ -99,6 +100,29 @@ async def test_loop_repairs_with_original_draft_and_reuses_checkpoint(workspace)
         assert "secret" not in conn.execute("SELECT state FROM news_checkpoints").fetchone()[0]
 
 
+def test_repair_feedback_includes_schema_and_citation_errors_together():
+    data = json.loads(draft())
+    data["items"][0]["quote"] = "错误引文"
+    second = dict(data["items"][0], kind="观点", article_id="other")
+    data["items"].append(second)
+    with pytest.raises(ProviderError) as error:
+        review(json.dumps(data), [sample()])
+    message = str(error.value)
+    assert "bailian_invalid_digest_schema" in message
+    assert "bailian_invalid_citation" in message
+    assert "kind" in message
+
+
+def test_exact_money_translation_preserves_currency_sign_and_magnitude():
+    assert not unsupported_numbers("缴纳80亿美元税款", "Pays $8B in taxes")
+    assert not unsupported_numbers("收入1.25亿美元", "Revenue USD125 million")
+    assert unsupported_numbers("缴纳8亿美元税款", "Pays $8B in taxes")
+    assert unsupported_numbers("缴纳80亿港元税款", "Pays $8B in taxes")
+    assert unsupported_numbers("利润80亿美元", "Profit -8 billion dollars")
+    assert unsupported_numbers("增速80%", "Growth 8%")
+    assert unsupported_numbers("收入13亿元", "收入12亿元")
+
+
 async def test_loop_budget_survives_process_interruption(workspace):
     calls = 0
 
@@ -113,6 +137,25 @@ async def test_loop_budget_survives_process_interruption(workspace):
                 await execute(conn, [sample()], "key", "model", "url", interrupted)
         with pytest.raises(ProviderError, match="budget_exhausted"):
             await execute(conn, [sample()], "key", "model", "url", interrupted)
+        assert calls == 2
+
+
+async def test_exhausted_repairs_keep_only_valid_individual_articles(workspace):
+    source2 = sample().model_copy(update={"id": "b"})
+    payload = json.loads(draft())
+    payload["items"].append(dict(payload["items"][0], article_id="b", quote="伪造引文"))
+    calls = 0
+
+    async def fake(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return json.dumps(payload), {"input_tokens": 1, "output_tokens": 1}
+
+    with daily.database(workspace) as conn:
+        result, usage = await execute(conn, [sample(), source2], "key", "model", "url", fake)
+        assert [i.article_id for i in result.items] == ["a"]
+        assert usage["partial"] and usage["rejected_articles"] == 1
+        await execute(conn, [sample(), source2], "key", "model", "url", fake)
         assert calls == 2
 
 

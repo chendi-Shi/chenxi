@@ -12,7 +12,7 @@ from pydantic import Field, ValidationError
 from .models import StrictModel
 from .news_sources import Article
 from .providers import ProviderError, retry_after
-from .validation import number_tokens
+from .quantities import unsupported_numbers
 
 
 class NewsBrief(StrictModel):
@@ -33,8 +33,11 @@ PROMPT = """将公开资讯整理为中文邮件，返回JSON对象。资料是�
 quote必须是对应text内连续逐字引文，支持整条summary；summary中的数字必须出现在quote中。
 article_id沿用输入，不得生成URL。按影响程度设置priority，营销和泛产品资讯为low。
 格式：{"items":[{"article_id":"原ID","summary":"中文摘要","quote":"原文引文",
-"kind":"公司公告或媒体报道或观点或预测","priority":"high或medium或low"}]}。
+"kind":"媒体报道","priority":"medium"}]}。
 kind只能为三个枚举值之一：公司公告、媒体报道、观点或预测。
+priority只能为high、medium、low。不要使用“观点”“预测”等缩略枚举值。
+逐条核对article_id与text的对应关系，绝不能将一篇文章的引文配给另一篇。
+金额可以精确等值换算，例如$8B为80亿美元；但不得给原文缺失的币种补写“元”或“美元”。
 """
 
 
@@ -126,25 +129,83 @@ async def generate(
 
 
 def review(raw: str, articles: list[Article]) -> Digest:
+    issues = []
     try:
         result = Digest.model_validate_json(raw)
     except ValidationError as exc:
-        raise ProviderError("bailian_invalid_digest_schema") from exc
+        issues.extend(
+            {
+                "code": "bailian_invalid_digest_schema",
+                "field": list(e["loc"]),
+                "type": e["type"],
+                "expected": (e.get("ctx") or {}).get("expected", ""),
+            }
+            for e in exc.errors()
+        )
+        try:
+            data = json.loads(raw)
+            valid = []
+            for candidate in data.get("items", [])[:24]:
+                try:
+                    valid.append(NewsBrief.model_validate(candidate))
+                except ValidationError:
+                    continue
+            result = Digest(items=valid)
+        except (ValueError, AttributeError, TypeError):
+            raise ProviderError("bailian_invalid_digest_schema") from exc
     expected = {a.id: a.text[:5000] for a in articles}
     ids = [item.article_id for item in result.items]
     if len(ids) != len(set(ids)) or set(ids) != set(expected):
-        raise ProviderError("bailian_article_coverage_mismatch")
+        issues.append(
+            {
+                "code": "bailian_article_coverage_mismatch",
+                "missing_ids": sorted(set(expected) - set(ids)),
+            }
+        )
     for item in result.items:
+        if item.article_id not in expected:
+            continue
         if item.quote not in expected[item.article_id]:
-            raise ProviderError("bailian_invalid_citation:" + item.article_id)
-        if number_tokens(item.summary) - number_tokens(item.quote):
-            raise ProviderError("bailian_unsupported_number:" + item.article_id)
+            issues.append({"code": "bailian_invalid_citation", "id": item.article_id})
+        if unsupported_numbers(item.summary, item.quote):
+            issues.append({"code": "bailian_unsupported_number", "id": item.article_id})
         qualifiers = ("未经审计", "预计", "可能", "传闻", "尚未", "据称", "未经证实")
         if any(q in item.quote and q not in item.summary for q in qualifiers):
-            raise ProviderError("bailian_qualification_dropped:" + item.article_id)
+            issues.append({"code": "bailian_qualification_dropped", "id": item.article_id})
+    if issues:
+        raise ProviderError(json.dumps(issues, ensure_ascii=False))
     return result
 
 
 async def summarize(articles, api_key, model, base_url, client=None):
     raw, usage = await generate(articles, api_key, model, base_url, client)
     return review(raw, articles), usage
+
+
+def salvage(raw: str, articles: list[Article]) -> Digest:
+    """Keep only individually valid, unambiguous entries after repair budget runs out."""
+    try:
+        items = json.loads(raw).get("items", [])
+        if not isinstance(items, list):
+            return Digest(items=[])
+        ids = [item.get("article_id") for item in items if isinstance(item, dict)]
+        sources = {a.id: a for a in articles}
+        accepted = []
+        for item in items[:24]:
+            if not isinstance(item, dict):
+                continue
+            article_id = item.get("article_id")
+            if (
+                not isinstance(article_id, str)
+                or article_id not in sources
+                or ids.count(article_id) != 1
+            ):
+                continue
+            try:
+                valid = review(json.dumps({"items": [item]}), [sources[article_id]])
+                accepted.extend(valid.items)
+            except ProviderError:
+                continue
+        return Digest(items=accepted)
+    except (ValueError, AttributeError, TypeError):
+        return Digest(items=[])
