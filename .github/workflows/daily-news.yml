@@ -7,7 +7,7 @@ on:
       mode:
         description: 'verify=connectivity; preview=no email; send=normal daily send; resolve=manual reconciliation'
         type: choice
-        options: [send, verify, preview, send-test, resolve]
+        options: [send, verify, preview, send-test, resolve, status, health]
         default: send
       run_id:
         description: 'For resolve only: exact uncertain delivery ID from logs'

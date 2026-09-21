@@ -1,10 +1,12 @@
 # Research Brief Agent
 
-**0.4.0：GitHub Actions 云端每日投研邮件。** 加密持久化状态、发送前远端确认、跨天不确定投递阻断、
+**0.4.1：GitHub Actions 云端每日投研邮件。** 加密持久化状态、发送前远端确认、跨天不确定投递阻断、
 故障注入测试、质量门槛和跨来源去重。完整的问题记录、技术细节、边界与运维步骤见
 [生产化运行手册](docs/PRODUCTION_RUNBOOK.md)。当前是单邮箱部署，不能等同于已通过企业级高可用验收。
 
 当前已启用 [GitHub 每日邮件工作流](https://github.com/chendi-Shi/chenxi/actions/workflows/daily-news.yml)：北京时间 09:00 调度、09:20 补查；运行不依赖本机开机。定时触发可能延迟。
+新增 09:50 [投递健康检查](https://github.com/chendi-Shi/chenxi/actions/workflows/daily-health.yml)：只读解密账本，未按时留下已发记录或存在不确定投递时让检查失败；它仍依赖 GitHub 调度，不是平台外监控。
+临时模型故障可在剩余预算内恢复；摘要门槛按公司分别计算，避免一家公司掩盖另一家缺失。
 2026-09-21 云端试发已入箱；16 条资讯中 15 条摘要通过校验，1 条因模型补充了未经证实的币种而只保留原文；同日重跑确认没有重复发信。
 
 HF Docker 研究台代码已提供，但目标 Space 因账号套餐限制仍暂停，不是当前运行入口。部署文件与限制见 [Hugging Face 部署说明](docs/HUGGING_FACE.md)。

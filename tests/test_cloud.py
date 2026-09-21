@@ -10,9 +10,10 @@ pytest.importorskip("cryptography")
 from cryptography.fernet import Fernet
 
 from research_agent import daily, daily_mail
-from research_agent.cloud import quality_gate
+from research_agent.cloud import failure_details, quality_gate
 from research_agent.cloud_state import GitHubState, StateError
 from research_agent.daily_config import DailyConfig
+from research_agent.news_quality import QualityGateError
 from research_agent.news_sources import Article, relevant, story_key
 
 
@@ -190,8 +191,8 @@ def test_quality_gate_rejects_uncovered_company_and_failed_empty_sources():
     with pytest.raises(ValueError, match="uncovered"):
         quality_gate(data)
     data = report()
-    data["articles"] = [{}, {}, {}]
-    data["summaries"] = [{}]
+    data["articles"] = [{"id": str(i), "company": "腾讯"} for i in range(3)]
+    data["summaries"] = [{"article_id": "0"}]
     with pytest.raises(ValueError, match="summaries"):
         quality_gate(data)
 
@@ -246,3 +247,40 @@ async def test_fresh_runner_recovers_remote_sending_and_refuses_duplicate(
     result, code = await daily.run(config, send=True, checkpoint=recovered.save)
     assert code == 2 and result["status"] == "delivery_uncertain_check_mailbox"
     assert len(messages) == 1
+
+
+def test_quality_gate_cannot_hide_one_company_behind_another():
+    data = report()
+    data["articles"] = [{"id": str(i), "company": "英伟达" if i < 8 else "腾讯"} for i in range(16)]
+    data["summaries"] = [{"article_id": str(i)} for i in range(8)]
+    with pytest.raises(ValueError, match="insufficient_verified_summaries"):
+        quality_gate(data)
+    data["summaries"].extend({"article_id": str(i)} for i in range(8, 12))
+    quality_gate(data)
+    data["summaries"].append({"article_id": "8"})
+    with pytest.raises(ValueError, match="invalid_summary_ids"):
+        quality_gate(data)
+
+
+def test_empty_company_with_failed_feed_is_not_no_news():
+    data = report()
+    data["articles"] = [{"id": "nv", "company": "英伟达"}]
+    data["summaries"] = [{"article_id": "nv"}]
+    data["coverage"].append({"company": "腾讯", "source": "other", "status": "failed"})
+    with pytest.raises(ValueError, match="empty_with_source_failure"):
+        quality_gate(data)
+
+
+def test_quality_failure_diagnostics_are_useful_without_source_or_secret_data():
+    data = report()
+    data["articles"] = [{"id": "a", "company": "腾讯", "text": "private-source-text"}]
+    data["model_error"] = "bailian_network_or_timeout"
+    with pytest.raises(QualityGateError) as caught:
+        quality_gate(data)
+    output = failure_details(caught.value)
+    assert output["model_error"] == "bailian_network_or_timeout"
+    assert output["companies"]["腾讯"]["verified_summaries"] == 0
+    assert "private-source-text" not in json.dumps(output)
+    data["model_error"] = "Authorization: private-secret"
+    assert "model_error" not in failure_details(QualityGateError("quality_gate_failed", data))
+    assert "private-secret" not in json.dumps(failure_details(ValueError("private-secret")))

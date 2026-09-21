@@ -147,6 +147,74 @@ async def test_loop_budget_survives_process_interruption(workspace):
         assert calls == 2
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_transient_failure_resumes_on_next_run_without_refunding_budget(workspace, legacy):
+    calls = []
+
+    async def generate(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ProviderError("bailian_network_or_timeout")
+        return draft(), {"input_tokens": 1, "output_tokens": 1}
+
+    with daily.database(workspace) as conn:
+        with pytest.raises(ProviderError, match="network_or_timeout"):
+            await execute(conn, [sample()], "key", "model", "url", generate)
+        state = json.loads(conn.execute("SELECT state FROM news_checkpoints").fetchone()[0])
+        assert state["attempts"] == 1 and state["phase"] == "retryable"
+        if legacy:
+            state["phase"] = "failed"
+            conn.execute("UPDATE news_checkpoints SET state=?", (json.dumps(state),))
+            conn.commit()
+    # Close and reopen the connection to simulate process restart.
+    with daily.database(workspace) as conn:
+        result, usage = await execute(conn, [sample()], "key", "model", "url", generate)
+        assert len(result.items) == 1 and usage["generations"] == 2
+        await execute(conn, [sample()], "key", "model", "url", generate)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("error,expected_calls", [("bailian_http_503", 2), ("bailian_http_403", 1)])
+async def test_retry_budget_and_permanent_errors_do_not_loop(workspace, error, expected_calls):
+    calls = []
+
+    async def fail(*args, **kwargs):
+        calls.append(1)
+        raise ProviderError(error)
+
+    for _ in range(4):
+        with daily.database(workspace) as conn, pytest.raises(ProviderError):
+            await execute(conn, [sample()], "key", "model", "url", fail)
+    assert len(calls) == expected_calls
+
+
+async def test_frozen_batch_respects_delivered_story_keys(workspace, monkeypatch):
+    cfg = config(workspace)
+    now = datetime(2026, 9, 21, 1, tzinfo=UTC)
+    from research_agent.news_sources import story_key
+
+    async def no_generation(*args, **kwargs):
+        pytest.fail("already delivered stories must not consume generation budget")
+
+    monkeypatch.setattr(daily, "execute_loop", no_generation)
+    with daily.database(workspace) as conn:
+        conn.execute("CREATE TABLE news_batches(id TEXT PRIMARY KEY,payload TEXT,created TEXT)")
+        collection = Collection(articles=[sample()])
+        conn.execute(
+            "INSERT INTO news_batches VALUES(?,?,?)",
+            ("2026-09-21", collection.model_dump_json(), now.isoformat()),
+        )
+        conn.execute(
+            "INSERT INTO delivered VALUES(?,?,?)",
+            (cfg.recipient, story_key(sample()), now.isoformat()),
+        )
+        conn.commit()
+        result = await daily.prepare(
+            cfg, {"api_key": "test"}, conn, now, checkpoint=lambda db: None
+        )
+        assert result["articles"] == []
+
+
 async def test_exhausted_repairs_keep_only_valid_individual_articles(workspace):
     source2 = sample().model_copy(update={"id": "b"})
     payload = json.loads(draft())

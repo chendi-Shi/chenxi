@@ -21,6 +21,7 @@ from .daily_config import configure, credentials, load_config
 from .models import digest
 from .news_loop import execute as execute_loop
 from .news_loop import setup as setup_loop
+from .news_quality import metrics
 from .news_sources import Article, Collection, collect, story_key
 from .providers import ProviderError
 from .reporting import atomic_write
@@ -130,8 +131,9 @@ async def prepare(config, secrets, conn, now, checkpoint=None):
             )
             conn.commit()
             checkpoint(conn)
-    articles = [a for a in collected.articles if a.id not in seen]
+    articles = [a for a in collected.articles if a.id not in seen and story_key(a) not in seen]
     summaries, usage = [], {}
+    model_error = ""
     status = "无新增条目，无需调用模型"
     failed = any(c.status != "ok" for c in collected.coverage)
     if articles:
@@ -155,6 +157,7 @@ async def prepare(config, secrets, conn, now, checkpoint=None):
                     )
             except ProviderError as exc:
                 status, failed = f"百炼摘要失败（{exc.code}）；仅原始资讯", True
+                model_error = exc.code
     day = now.astimezone(ZoneInfo(config.timezone)).date().isoformat()
     return {
         "id": day + "-" + digest(config.recipient)[:12],
@@ -167,6 +170,7 @@ async def prepare(config, secrets, conn, now, checkpoint=None):
         "summaries": summaries,
         "usage": usage,
         "degraded": failed,
+        "model_error": model_error,
     }
 
 
@@ -230,6 +234,10 @@ async def run(
                 "articles": len(report["articles"]),
                 "summary_status": report["summary_status"],
                 "coverage": report["coverage"],
+                "companies": metrics(report),
+                "degraded": report["degraded"],
+                "verified_summaries": len(report["summaries"]),
+                "usage": report.get("usage", {}),
             }, 0
         if delivery_policy:
             delivery_policy(report)
@@ -283,6 +291,7 @@ async def run(
             "healthy_sources": sum(c["status"] == "ok" for c in report["coverage"]),
             "source_count": len(report["coverage"]),
             "usage": report.get("usage", {}),
+            "companies": metrics(report),
         }, 0
 
 

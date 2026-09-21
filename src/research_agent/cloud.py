@@ -6,25 +6,16 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import daily
+from .cloud_health import snapshot
 from .cloud_state import GitHubState, StateError
 from .daily_config import DailyConfig
-
-
-def quality_gate(report):
-    sources = report["coverage"]
-    for company in ("英伟达", "腾讯"):
-        if not any(s["company"] == company and s["status"] == "ok" for s in sources):
-            raise ValueError("quality_gate_company_uncovered")
-    total = len(report["articles"])
-    if total and len(report["summaries"]) / total < 0.5:
-        raise ValueError("quality_gate_insufficient_verified_summaries")
-    if not total and any(s["status"] != "ok" for s in sources):
-        raise ValueError("quality_gate_empty_with_source_failure")
+from .news_quality import QualityGateError, quality_gate
 
 
 def prune(conn):
@@ -61,6 +52,9 @@ async def execute(mode, outcome="", run_id=""):
     try:
         store.restore()
         with daily.database(config.data_dir) as conn:
+            if mode in {"status", "health"}:
+                result, code = snapshot(conn, config)
+                return result, code if mode == "health" else 0
             prune(conn)
             store.save(conn)  # Acquire a fresh CAS version before any provider work.
             if mode == "resolve":
@@ -87,9 +81,25 @@ async def execute(mode, outcome="", run_id=""):
         store.close()
 
 
+def failure_details(exc):
+    # Emit only internal state error vocabulary and counters, never HTTP/config reprs.
+    result = {"status": "failed", "error": type(exc).__name__}
+    if isinstance(exc, (StateError, QualityGateError)):
+        result["error"] = str(exc)
+    if isinstance(exc, QualityGateError):
+        result["companies"] = exc.companies
+        model_error = exc.model_error
+        if re.fullmatch(r"(?:bailian|agent)_[a-z0-9_]{1,64}", model_error):
+            result["model_error"] = model_error
+        result["next_action"] = "Inspect per-company coverage and model error; do not bypass gate."
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["verify", "preview", "send", "send-test", "resolve"])
+    parser.add_argument(
+        "mode", choices=["verify", "preview", "send", "send-test", "resolve", "status", "health"]
+    )
     parser.add_argument("--outcome", default="")
     parser.add_argument("--id", default="")
     args = parser.parse_args()
@@ -97,11 +107,7 @@ def main():
     try:
         result, code = asyncio.run(execute(args.mode, args.outcome, args.id))
     except Exception as exc:
-        # Only explicit state errors have a safe error vocabulary. Never emit HTTP bodies.
-        safe = str(exc) if isinstance(exc, StateError) else type(exc).__name__
-        if type(exc) is ValueError and str(exc).startswith("quality_gate_"):
-            safe = str(exc)
-        result, code = {"status": "failed", "error": safe}, 2
+        result, code = failure_details(exc), 2
     result.pop("coverage", None)  # Source diagnostics belong in the private/encrypted record.
     result.pop("html", None)
     result["duration_seconds"] = round(time.monotonic() - started, 2)

@@ -10,6 +10,17 @@ from .models import digest, stable_json
 from .providers import ProviderError
 
 
+def transient(code):
+    return code in {
+        "bailian_network_or_timeout",
+        "bailian_http_429",
+        "bailian_http_500",
+        "bailian_http_502",
+        "bailian_http_503",
+        "bailian_http_504",
+    }
+
+
 def setup(conn):
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS news_checkpoints (
@@ -63,6 +74,15 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None, ch
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
     )
+    # Resume only known temporary failures, including checkpoints written by v0.4.0.
+    # The generation reservation is never refunded, even if the response was lost.
+    if (
+        state["phase"] in {"failed", "retryable"}
+        and transient(state["error"])
+        and state["attempts"] < 2
+    ):
+        state["phase"] = "generate"
+        save(conn, key, state, "transient_failure_resumed", checkpoint)
     for _ in range(8):
         if state["phase"] == "partial":
             result = salvage(state["draft"], articles)
@@ -79,7 +99,7 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None, ch
                 "generations": state["attempts"],
                 "checkpoint": key,
             }
-        if state["phase"] == "failed":
+        if state["phase"] in {"failed", "retryable"}:
             raise ProviderError(state["error"] or "agent_generation_budget_exhausted")
         if state["phase"] in {"generate", "calling"}:
             if state["attempts"] >= 2:
@@ -101,9 +121,10 @@ async def execute(conn, articles, api_key, model, base_url, generate_fn=None, ch
                     articles, api_key, model, base_url, feedback=feedback
                 )
             except ProviderError as exc:
-                state.update(phase="failed", error=exc.code)
+                retryable = transient(exc.code) and state["attempts"] < 2
+                state.update(phase="retryable" if retryable else "failed", error=exc.code)
                 save(conn, key, state, exc.code, checkpoint)
-                continue
+                raise  # Defer the remaining reservation to the next scheduled run.
             for field in ("input_tokens", "output_tokens"):
                 state["usage"][field] += usage.get(field, 0)
             state.update(phase="review", draft=raw)
